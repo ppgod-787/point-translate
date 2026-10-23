@@ -168,14 +168,27 @@ is_language_supported('zh-Hans-CN') = True
 
 ## 打包成 exe
 
-仓库里不含编译产物（体积太大），需要自己打：
+仓库里不含编译产物（体积太大），需要自己打。一条命令搞定：
 
 ```powershell
-uv pip install --python .\.venv\Scripts\python.exe pyinstaller
-.\.venv\Scripts\pyinstaller.exe point_translate.spec --noconfirm --clean
+powershell -ExecutionPolicy Bypass -File build-release.ps1
 ```
 
-生成结果在 `dist\PointTranslate\`：
+这个脚本会依次完成：停掉运行中的实例 → 按 spec 构建 exe →
+补上 `start.bat` → 清掉本机运行时数据 → 压成规范的 zip。
+
+> 为什么不直接敲 `pyinstaller point_translate.spec`：`--clean` 会
+> **整个删掉 dist 目录**，手工放进去的 `start.bat` 每次都会丢。
+> 步骤固化在脚本里才不会漏。
+
+生成结果：
+
+```
+dist\PointTranslate\              解压后的运行目录
+dist\PointTranslate-v0.1.0-win64.zip   发布用的压缩包（约 40 MB）
+```
+
+### 分步说明
 
 ```
 dist\PointTranslate\
@@ -197,7 +210,7 @@ exe 名字带中文，在批处理里也不适合直接写，所以它是用通�
 
 **不要直接 `pyinstaller main.py`**，必须用 spec 文件，原因见下面。
 
-### 打包时踩到的三个坑
+### 打包时踩到的坑
 
 已经都处理好了，这里记下来免得以后重踩：
 
@@ -215,14 +228,30 @@ PyInstaller 扫不到它们，不写进 `hiddenimports` 的话会打出一个
 PyInstaller 的 `_MEIxxxx` 临时目录，**退出即删** —— 会导致每次运行
 缓存都白攒、配置存不住。现在检测 `sys.frozen`，改用 exe 所在目录。
 
+**4. 脚本文件不能带中文（编码坑，踩了两次）**
+- `.bat`：cmd.exe 按系统 OEM 代码页（中文系统是 GBK）读文件，
+  写中文注释会变成乱码命令直接执行失败。
+- `.ps1`：Windows PowerShell 5.1 对无 BOM 的 UTF-8 也按 GBK 读，
+  中文会让解析器报"字符串缺少终止符"。
+
+所以 `start.bat` 和 `build-release.ps1` 一律**纯 ASCII**。
+exe 名字带中文，批处理里用通配符 `*PointTranslate.exe` 查找而不是写死。
+
+**5. `Compress-Archive` 生成的 zip 不合规范**
+它把条目路径写成反斜杠 `PointTranslate\start.bat`，违反 ZIP 规范
+（APPNOTE 要求正斜杠）。Windows 资源管理器能容忍，但 7-Zip、macOS、
+Linux 的解压工具可能解出名字里带反斜杠的畸形文件。
+所以改用 Python `zipfile` 生成（`_make_release_zip.py`），它始终用正斜杠，
+并会为中文文件名正确设置 UTF-8 标志位。
+
 ### 打包后怎么验证
 
-exe 是 `console=False`（没有黑色命令行窗口），所以自检结果会写成文件：
+exe 是 `console=False`（没有黑色命令行窗口），所以自检结果会写成文件
+（固定写在 **exe 旁边**，不受启动时工作目录影响）：
 
 ```powershell
-cd dist\PointTranslate
-Start-Process '.\指译 PointTranslate.exe' -ArgumentList '--selftest' -Wait
-Get-Content selftest.txt
+Start-Process 'dist\PointTranslate\指译 PointTranslate.exe' -ArgumentList '--selftest' -Wait
+Get-Content 'dist\PointTranslate\selftest.txt'
 ```
 
 6 项全 `[OK]` 就说明打包完整。注意**必须用 `Start-Process -Wait`**：
@@ -271,18 +300,23 @@ Windows 可能把它折叠了。点任务栏的 `^` 展开，把图标拖到任�
 
 ```
 point-translate/
-├─ main.py            入口：托盘、开关、把各层串起来
-├─ config.py          配置读写
-├─ winutil.py         Windows 底层：DPI 感知、截图、鼠标穿透
-├─ overlay.py         气泡窗口（鼠标穿透 + 自动定位）
-├─ triggers.py        悬停检测线程：什么时候该翻译
-├─ translate.py       翻译层：多源回退 + SQLite 缓存 + OCR 纠错
+├─ main.py               入口：托盘、开关、自检、把各层串起来
+├─ config.py             配置读写（含打包后的路径处理）
+├─ winutil.py            Windows 底层：DPI 感知、截图、鼠标穿透
+├─ overlay.py            气泡窗口（鼠标穿透 + 自动定位）
+├─ triggers.py           悬停检测线程：什么时候该翻译
+├─ translate.py          翻译层：多源回退 + SQLite 缓存 + OCR 纠错
 ├─ extractors/
-│  ├─ uia.py          UI Automation 取词
-│  └─ ocr.py          Windows OCR 取词
-├─ _smoke.py          自检：各层是否正常
-├─ _integration.py    集成测试：悬停触发链路
-└─ config.json        配置
+│  ├─ uia.py             UI Automation 取词
+│  └─ ocr.py             Windows OCR 取词
+├─ _smoke.py             自检：各层是否正常
+├─ _integration.py       集成测试：悬停触发链路
+├─ point_translate.spec  PyInstaller 打包配置
+├─ build-release.ps1     一键构建发布包
+├─ _make_release_zip.py  生成符合 ZIP 规范的发布压缩包
+├─ start.bat             启动脚本（纯 ASCII）
+├─ requirements.txt      依赖
+└─ LICENSE               MIT
 ```
 
 ## 自检与测试
@@ -306,3 +340,22 @@ point-translate/
 4. **中文 OCR 引擎认英文有错字** —— 见上面"建议做的一步"。
 5. 翻译源用的是公开的免费接口，**依赖它们的可用性**，随时可能变动或限流。
    所有结果都有本地缓存，常用的词不会反复请求。
+
+---
+
+## 免责与声明
+
+- 本项目仅用于**帮助阅读英文界面**，翻译结果由第三方公开接口提供，不保证准确。
+- 翻译内容会以文本形式发送到对应的翻译服务（金山词霸 / 有道 / 必应 / MyMemory）。
+  **请勿在涉及密码、密钥、个人隐私的界面上使用本工具。**
+- 翻译源均为各服务公开的网页接口，本项目不存储、不转发你的翻译内容，
+  但你与这些服务之间仍受各自的服务条款约束。
+- 本项目与 Epic Games、Microsoft、金山、有道、必应均无关联。
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 ppgod-787
+
+你可以自由使用、修改、分发，包括商用，只需保留版权声明。

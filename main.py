@@ -298,20 +298,30 @@ def _selftest(verbose: bool = True) -> int:
 
     # 打成 exe 之后是 console=False，没有标准输出，
     # 所以结果必须同时落到文件里，否则等于什么都没测。
+    # 固定写到 exe / 源码所在目录，而不是当前工作目录：
+    # 从快捷方式、计划任务或其他目录启动时工作目录会变，
+    # 写在 CWD 里用户根本找不到那份报告。
     try:
         print(report, flush=True)
     except Exception:
         pass
-    for target in (Path("selftest.txt"), Path.home() / "指译-selftest.txt"):
+
+    from config import BASE_DIR
+
+    written = False
+    for target in (BASE_DIR / "selftest.txt", Path.home() / "指译-selftest.txt"):
         try:
             target.write_text(report, encoding="utf-8")
             try:
                 print(f"报告已写入: {target.resolve()}", flush=True)
             except Exception:
                 pass
+            written = True
             break
         except Exception:
             continue
+    if not written:
+        return 1
 
     return 1 if failed else 0
 

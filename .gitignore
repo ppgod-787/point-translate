@@ -9,6 +9,8 @@ env/
 # 打包产物（体积大，不纳入版本控制；需要的人自己 build）
 build/
 dist/
+*.zip
+!requirements.txt
 *.spec.bak
 
 # 运行时生成的文件：配置和缓存都是本机数据
