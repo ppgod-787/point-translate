@@ -1,0 +1,9 @@
+# 运行依赖
+PySide6>=6.6
+uiautomation>=2.0.18
+requests>=2.31
+# Windows OCR / Imaging（仅 Windows）
+winsdk>=1.0.0b10; sys_platform == "win32"
+
+# 打包依赖（想自己生成 exe 才需要）
+# pyinstaller>=6.0

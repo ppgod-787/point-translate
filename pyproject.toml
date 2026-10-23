@@ -1,0 +1,14 @@
+[project]
+name = "point-translate"
+version = "0.1.0"
+description = "鼠标悬停即翻译：把鼠标指向的英文实时翻译成中文"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.6",
+    "uiautomation>=2.0.18",
+    "winsdk>=1.0.0b10; sys_platform == 'win32'",
+    "requests>=2.31",
+]
+
+[tool.uv]
+package = false
