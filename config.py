@@ -141,7 +141,10 @@ class Config:
     def load(cls) -> "Config":
         if CONFIG_PATH.exists():
             try:
-                raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                # 用 utf-8-sig 读：Windows 记事本"另存为 UTF-8"会写 BOM，
+                # 纯 utf-8 解码后 json.loads 会报 Unexpected UTF-8 BOM，
+                # 结果就是整份配置被静默丢弃、全部回默认值。
+                raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
             except (OSError, json.JSONDecodeError):
                 return cls()
             if not isinstance(raw, dict):

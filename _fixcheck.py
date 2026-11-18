@@ -81,6 +81,14 @@ def test_config() -> None:
             eq("坏 json 回退默认", config.Config.load().hover_seconds, 1.0)
             path.write_text("[1, 2, 3]", encoding="utf-8")
             eq("非对象 json 回退默认", config.Config.load().enabled, True)
+
+            # 记事本"另存为 UTF-8"会带 BOM：以前会整份回默认，现在要能正常读
+            path.write_text(
+                '{"hover_seconds": 0.05, "providers": ["bing"]}', encoding="utf-8-sig"
+            )
+            bom_cfg = config.Config.load()
+            eq("带 BOM 的配置能读", bom_cfg.hover_seconds, 0.1)
+            eq("带 BOM 的配置项生效", bom_cfg.providers, ["bing"])
         finally:
             config.CONFIG_PATH = original_path
 
