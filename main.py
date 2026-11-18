@@ -152,6 +152,11 @@ class App:
         if disabled:
             self.bubble.move_away()
         self._log("翻译已暂停" if disabled else "翻译已开启")
+        # 暂停/恢复要落盘，否则重启后又读回配置文件里的旧值
+        try:
+            self.config.save()
+        except OSError as exc:
+            self._log(f"保存配置失败: {exc}")
 
     def _show_stats(self) -> None:
         stats = self.translator.cache.stats()

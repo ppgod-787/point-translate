@@ -102,9 +102,16 @@ class OcrExtractor:
         if engine is None:
             return None
 
-        left = x - self.width // 2
-        top = y - self.height // 2
-        grabbed = winutil.grab_region_raw(left, top, self.width, self.height)
+        # pad 是字形上下沿的余量：紧贴光标的框容易切掉字母的顶和底。
+        # 同时先用 clamp_to_virtual 算出真实区域，才能知道光标落在截图的哪一行——
+        # 贴边或多显示器负坐标时区域会被裁小，光标不在正中央，按定值猜会挑错行。
+        left, top, w, h = winutil.clamp_to_virtual(
+            x - self.width // 2 - self.pad,
+            y - self.height // 2 - self.pad,
+            self.width + 2 * self.pad,
+            self.height + 2 * self.pad,
+        )
+        grabbed = winutil.grab_region_raw(left, top, w, h)
         if not grabbed:
             return None
         raw, w, h = grabbed
@@ -124,9 +131,9 @@ class OcrExtractor:
         if not lines:
             return None
 
-        # 鼠标大致落在截图中间，按垂直位置挑最靠近中心的那一行：
+        # 按"光标在截图里的真实纵坐标"挑最靠近的那一行：
         # 直接拼全文会把旁边无关的文字也翻进来。
-        best = _closest_line(result.lines, self.height // 2)
+        best = _closest_line(result.lines, y - top)
         text = best or " ".join(lines)
         return OcrResult(text=text, lines=lines)
 

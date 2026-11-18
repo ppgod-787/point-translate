@@ -116,9 +116,11 @@ class HoverWorker(QObject):
 
     def _handle(self, x: int, y: int) -> None:
         # 1) 先确保气泡隐藏，避免 UIA 命中的是我们自己的气泡
+        #    正常情况下回执一到 wait 就返回；这里的超时只是"主线程卡住"时的
+        #    兜底，给到 1 秒，免得主线程偶尔忙一下就带着气泡去取词。
         self._hide_ack.clear()
         self.bubble_hide.emit()
-        self._hide_ack.wait(timeout=0.4)
+        self._hide_ack.wait(timeout=1.0)
 
         if self._stop.is_set():
             return

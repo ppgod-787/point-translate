@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DIST = Path(r"C:\Users\65121\Documents\dsh workspace\point-translate\dist")
+DIST = Path(__file__).resolve().parent / "dist"
 SRC = DIST / "PointTranslate"
 OUT = DIST / "PointTranslate-v0.1.0-win64.zip"
 

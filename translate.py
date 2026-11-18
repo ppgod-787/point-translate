@@ -33,6 +33,16 @@ _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
 # 单词 vs 句子的分界：没有空格且不太长，就当单词查词典
 _WORD_MAX_LEN = 24
 
+# 译文采信闸门。词典源返回的是"释义串"，天然比原文长；但超过上限基本可以
+# 断定对方返回了无关内容（实测有道会把 MFABD2 这类串答成一段百科式长文，
+# 结果被永久写进缓存）。机翻那边则是防止把整段话抄回来。
+_MAX_RESULT_LEN = {"iciba": 160, "youdao": 100}
+_SHORT_RESULT_LEN = 60
+_DICT_POS = re.compile(r"^(?:[a-z]{1,5}\.(?:/[a-z]{1,5}\.)?|网络释义|词组短语|柯林斯)", re.I)
+_SENTENCE_MAX_GROWTH = 6.0
+_SENTENCE_MAX_EXTRA = 120
+_MAX_RESULT_LINES = 3
+
 # OCR 常见误识：中文 OCR 引擎认英文时尤其爱犯这几个错
 _OCR_CHAR_FIXES = (
     ("|", "l"),
@@ -181,8 +191,7 @@ class Translator:
         if cached is not None:
             return cached, "cache"
 
-        chain = self.WORD_CHAIN if _is_word(text) else self.SENTENCE_CHAIN
-        for name in chain:
+        for name in self._chain_for(text):
             fn = _PROVIDERS.get(name)
             if fn is None:
                 continue
@@ -193,11 +202,26 @@ class Translator:
             if not result:
                 continue
             result = result.strip()
-            if result and result.lower() != text.lower():
+            if _result_ok(name, text, result):
                 if reliable:
                     self.cache.put(text, src, dst, result, name)
                 return result, name
         return None
+
+    def _chain_for(self, text: str) -> tuple[str, ...]:
+        """按 config.providers 决定候选源和顺序（README 里承诺过可以改顺序）。
+
+        以前 providers 只是被 Config.load 校验一遍就没人用了，改它没有任何效果。
+        现在它真正生效：不在列表里的源跳过，列表顺序就是尝试顺序；列表里写的源
+        如果都不适用于当前的文本类型（比如只留了词典源但这句是句子），
+        退回该类型的内置链，而不是直接返回"翻不了"。
+        """
+        chain = self.WORD_CHAIN if _is_word(text) else self.SENTENCE_CHAIN
+        preferred = tuple(self.config.providers or ())
+        if not preferred:
+            return chain
+        filtered = tuple(name for name in preferred if name in chain)
+        return filtered or chain
 
     # ---------- 预热 ----------
 
@@ -237,6 +261,10 @@ class Translator:
         # 纯英文界面不受影响（中文字符数为 0）。
         cjk = len(_CJK.findall(text))
         if cjk and cjk / max(len(text), 1) > 0.1:
+            return False
+        # 中英混排、英文只是零星几个词的标题（"编辑 DeepSeek (deepseek-official)"），
+        # 机翻基本只会把英文原样抄回来、还多塞空格。英文词少于 4 个就当它不需要翻。
+        if cjk and len(_ASCII_WORD.findall(text)) < 4:
             return False
         if _looks_like_path_or_filename(text):
             return False
@@ -414,6 +442,24 @@ _PROVIDERS = {
 }
 
 
+def _result_ok(name: str, text: str, result: str) -> bool:
+    """判断某个源给的译文值不值得采信（长度、行数、是否原地踏步）。"""
+    if not result:
+        return False
+    if result.lower() == text.lower():
+        return False
+    if result.count("\n") >= _MAX_RESULT_LINES:
+        return False
+    limit = _MAX_RESULT_LEN.get(name)
+    if limit is not None:
+        if len(result) > limit:
+            return False
+        # 词典源的长结果必须是"词性 + 释义"的形态（n. / vt. / adj. …）；
+        # 否则多半是接口把无关的网络释义、百科段落塞进了释义字段。
+        return len(result) <= _SHORT_RESULT_LEN or bool(_DICT_POS.match(result))
+    return len(result) <= len(text) * _SENTENCE_MAX_GROWTH + _SENTENCE_MAX_EXTRA
+
+
 def _is_word(text: str) -> bool:
     """没空格且不太长 → 当单词处理，走词典接口。"""
     if len(text) > _WORD_MAX_LEN:
@@ -426,6 +472,12 @@ _FILENAME = re.compile(r"^[\w\-. ]+\.(py|exe|dll|md|txt|json|ini|cfg|log|zip|rar
 
 # 形如 C:\Users\... 或 /usr/local/... 的路径
 _PATHLIKE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/[\w.]+/)")
+
+# 形如 owner/repo 的标识符（GitHub 列表、终端输出里很常见）
+_SLUG = re.compile(r"^[\w.\-]+/[\w.\-]+$")
+
+# 英文单词（含缩写和连字符），用来判断中英混排里"英文到底有多少"
+_ASCII_WORD = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 
 
 def _looks_like_path_or_filename(text: str) -> bool:
@@ -441,6 +493,14 @@ def _looks_like_path_or_filename(text: str) -> bool:
         return True
     # 纯 URL
     if re.match(r"^https?://", stripped, re.I):
+        return True
+    # owner/repo 这类标识符。带 "/" 但本身是正常词组的（and/or、24/7）
+    # 不该被挡，所以额外要求里面有字母、且有数字或连字符/下划线。
+    if (
+        _SLUG.match(stripped)
+        and _ASCII_LETTER.search(stripped)
+        and any(ch.isdigit() or ch in "-_" for ch in stripped)
+    ):
         return True
     # 版本号：v1.2.3 / 1.0.0
     if re.match(r"^v?\d+(\.\d+){1,3}$", stripped, re.I):
