@@ -185,7 +185,7 @@ powershell -ExecutionPolicy Bypass -File build-release.ps1
 
 ```
 dist\PointTranslate\              解压后的运行目录
-dist\PointTranslate-v0.1.0-win64.zip   发布用的压缩包（约 40 MB）
+dist\PointTranslate-v<版本>-win64.zip   发布用的压缩包（约 40 MB，版本取自 pyproject.toml）
 ```
 
 ### 分步说明
