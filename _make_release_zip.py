@@ -9,15 +9,27 @@ zipfile 模块始终使用正斜杠，且能保留 UTF-8 文件名标志。
 
 from __future__ import annotations
 
+import re
 import sys
 import zipfile
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DIST = Path(__file__).resolve().parent / "dist"
+ROOT = Path(__file__).resolve().parent
+DIST = ROOT / "dist"
 SRC = DIST / "PointTranslate"
-OUT = DIST / "PointTranslate-v0.1.0-win64.zip"
+
+# 版本号只在 pyproject.toml 里写一次，避免 zip 名字和发布版本对不上
+_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.M)
+_pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+_match = _VERSION_RE.search(_pyproject)
+if not _match:
+    print("pyproject.toml 里找不到 version")
+    raise SystemExit(1)
+VERSION = _match.group(1)
+
+OUT = DIST / f"PointTranslate-v{VERSION}-win64.zip"
 
 # 这些是本机运行时产物，不该发给用户
 SKIP_NAMES = {"cache.sqlite3", "cache.sqlite3-journal", "selftest.txt", "config.json"}

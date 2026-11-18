@@ -1,6 +1,6 @@
 [project]
 name = "point-translate"
-version = "0.1.0"
+version = "0.1.1"
 description = "鼠标悬停即翻译：把鼠标指向的英文实时翻译成中文"
 requires-python = ">=3.10"
 dependencies = [
