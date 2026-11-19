@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -28,3 +28,6 @@ Thumbs.db
 
 # 日志
 *.log
+
+# uiautomation 的运行日志（出错时自动生成）
+@AutomationLog.txt

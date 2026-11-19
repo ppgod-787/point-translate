@@ -96,8 +96,12 @@ class OcrExtractor:
 
     # ---------- 取词 ----------
 
-    def read_at(self, x: int, y: int) -> OcrResult | None:
-        """截取鼠标周围一小块区域并识别文字。"""
+    def read_at(self, x: int, y: int, word_only: bool = False) -> OcrResult | None:
+        """截取鼠标周围一小块区域并识别文字。
+
+        word_only=True 时只返回指针正下方那个词（OCR 会给出每个词的包围盒，
+        所以能精确定位），而不是整行。
+        """
         engine = self._get_engine()
         if engine is None:
             return None
@@ -130,6 +134,12 @@ class OcrExtractor:
         lines = [line.text.strip() for line in result.lines if line.text.strip()]
         if not lines:
             return None
+
+        # 单词模式：直接用词级包围盒定位指针下的那个词
+        if word_only:
+            word = _word_at(result.lines, x - left, y - top)
+            if word:
+                return OcrResult(text=word, lines=lines)
 
         # 按"光标在截图里的真实纵坐标"挑最靠近的那一行：
         # 直接拼全文会把旁边无关的文字也翻进来。
@@ -186,6 +196,35 @@ def _closest_line(lines, target_y: int) -> str | None:
         dist = abs(center_y - target_y)
         if best_dist is None or dist < best_dist:
             best_text, best_dist = text, dist
+    return best_text
+
+
+def _word_at(lines, px: int, py: int) -> str | None:
+    """挑出指针正下方的那个词。
+
+    先找包围盒真的包含该点的词；一个都没包住（指针落在字形之间的空隙、
+    或停在标点旁）就退而取中心最近的那个 —— 反正整块截图只有 420x90。
+    """
+    best_text, best_dist = None, None
+    for line in lines:
+        words = getattr(line, "words", None)
+        if not words:
+            continue
+        for word in words:
+            text = (word.text or "").strip()
+            if not text:
+                continue
+            rect = word.bounding_rect
+            if (
+                rect.x <= px <= rect.x + rect.width
+                and rect.y <= py <= rect.y + rect.height
+            ):
+                return text
+            dx = (rect.x + rect.width / 2) - px
+            dy = (rect.y + rect.height / 2) - py
+            dist = dx * dx + dy * dy
+            if best_dist is None or dist < best_dist:
+                best_text, best_dist = text, dist
     return best_text
 
 

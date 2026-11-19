@@ -175,11 +175,15 @@ class Translator:
 
     # ---------- 对外主入口 ----------
 
-    def translate(self, text: str, reliable: bool = True) -> tuple[str, str] | None:
+    def translate(
+        self, text: str, reliable: bool = True, word_only: bool = False
+    ) -> tuple[str, str] | None:
         """返回 (译文, 来源标记)，取不到返回 None。
 
         reliable=False 表示原文来自 OCR，可能认错字。这种情况下
         只读缓存、不写缓存，免得把识别错的垃圾结果永久存进去。
+        word_only=True 表示用户只想要"指针下这个单词"，此时一律走词典链
+        （哪怕这个词长过 _WORD_MAX_LEN，机翻单词的意义也不大）。
         """
         text = cleanup_ocr(text)
         if not self.should_translate(text):
@@ -191,7 +195,7 @@ class Translator:
         if cached is not None:
             return cached, "cache"
 
-        for name in self._chain_for(text):
+        for name in self._chain_for(text, word_only=word_only):
             fn = _PROVIDERS.get(name)
             if fn is None:
                 continue
@@ -208,15 +212,18 @@ class Translator:
                 return result, name
         return None
 
-    def _chain_for(self, text: str) -> tuple[str, ...]:
+    def _chain_for(self, text: str, word_only: bool = False) -> tuple[str, ...]:
         """按 config.providers 决定候选源和顺序（README 里承诺过可以改顺序）。
 
         以前 providers 只是被 Config.load 校验一遍就没人用了，改它没有任何效果。
         现在它真正生效：不在列表里的源跳过，列表顺序就是尝试顺序；列表里写的源
         如果都不适用于当前的文本类型（比如只留了词典源但这句是句子），
         退回该类型的内置链，而不是直接返回"翻不了"。
+        word_only=True（用户只要单词）时一律按单词处理。
         """
-        chain = self.WORD_CHAIN if _is_word(text) else self.SENTENCE_CHAIN
+        chain = (
+            self.WORD_CHAIN if (word_only or _is_word(text)) else self.SENTENCE_CHAIN
+        )
         preferred = tuple(self.config.providers or ())
         if not preferred:
             return chain

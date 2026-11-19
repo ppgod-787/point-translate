@@ -73,7 +73,8 @@ class App:
         self._log(
             f"已启动 · 悬停 {self.config.hover_seconds}s 触发 · "
             f"UIA={'开' if self.config.use_uia else '关'} "
-            f"OCR={'开' if self.config.use_ocr else '关'}"
+            f"OCR={'开' if self.config.use_ocr else '关'} · "
+            f"整句={'开' if self.config.whole_sentence else '关（只翻单词）'}"
         )
         self._check_ocr()
 
@@ -117,6 +118,11 @@ class App:
         self.toggle_action.triggered.connect(self._toggle_enabled)
         menu.addAction(self.toggle_action)
 
+        self.sentence_action = QAction("整句翻译", menu, checkable=True)
+        self.sentence_action.setChecked(self.config.whole_sentence)
+        self.sentence_action.triggered.connect(self._toggle_whole_sentence)
+        menu.addAction(self.sentence_action)
+
         menu.addSeparator()
 
         stats_action = QAction("查看缓存统计", menu)
@@ -153,6 +159,17 @@ class App:
             self.bubble.move_away()
         self._log("翻译已暂停" if disabled else "翻译已开启")
         # 暂停/恢复要落盘，否则重启后又读回配置文件里的旧值
+        try:
+            self.config.save()
+        except OSError as exc:
+            self._log(f"保存配置失败: {exc}")
+
+    def _toggle_whole_sentence(self, checked: bool) -> None:
+        """勾选=翻译整句；取消=只翻译指针下的那个单词。"""
+        self.config.whole_sentence = checked
+        # 粒度变了，旧气泡里是另一种口径的结果，直接收掉
+        self.bubble.move_away()
+        self._log("整句翻译：" + ("开" if checked else "关（只翻译指针下的单词）"))
         try:
             self.config.save()
         except OSError as exc:

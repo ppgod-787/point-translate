@@ -173,18 +173,23 @@ def test_ocr_region() -> None:
             ocr.winutil.raw_to_software_bitmap, ocr._recognize)
 
     class _Rect:
-        def __init__(self, y):
+        def __init__(self, x, y, w=120.0, h=20.0):
+            self.x = x
             self.y = y
-            self.height = 20.0
+            self.width = w
+            self.height = h
 
     class _Word:
-        def __init__(self, y):
-            self.bounding_rect = _Rect(y)
+        def __init__(self, text, x, y):
+            self.text = text
+            self.bounding_rect = _Rect(x, y)
 
     class _Line:
         def __init__(self, text, y):
             self.text = text
-            self.words = [_Word(y)]
+            first, second = text.split()[0], text.split()[-1]
+            # 每行两个词：x=20..140 / x=150..270
+            self.words = [_Word(first, 20.0, y), _Word(second, 150.0, y)]
 
     try:
         def fake_clamp(x, y, w, h):
@@ -213,9 +218,71 @@ def test_ocr_region() -> None:
         eq("截图左上角按 pad 外扩", calls["grab"][:2], (1000 - 210 - 14, 500 - 45 - 14))
         eq("截图尺寸含 pad", calls["grab"][2:], (420 + 28, 90 + 28))
         eq("挑中的是光标所在行", result.text if result else None, "middle line")
+
+        # 光标 (1000, 515) -> 截图中 (224, 74)，落在中间行第二个词上
+        word_result = extractor.read_at(1000, 515, word_only=True)
+        eq("单词模式取到指针下那个词", word_result.text if word_result else None, "line")
     finally:
         (ocr.winutil.clamp_to_virtual, ocr.winutil.grab_region_raw,
          ocr.winutil.raw_to_software_bitmap, ocr._recognize) = real
+
+
+# ---------------------------------------------------------------- 单词模式
+def test_word_mode() -> None:
+    print("\n6) 单词模式：整句翻译关闭时只取指针下的单词")
+    import config
+    from extractors.ocr import _word_at
+    from extractors.uia import _acceptable_word
+    from translate import Translator
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "config.json"
+        original = config.CONFIG_PATH
+        config.CONFIG_PATH = path
+        try:
+            path.write_text('{"whole_sentence": "false"}', encoding="utf-8")
+            eq("config 里的 whole_sentence 生效", config.Config.load().whole_sentence, False)
+            path.write_text("{}", encoding="utf-8")
+            eq("默认是翻译整句", config.Config.load().whole_sentence, True)
+        finally:
+            config.CONFIG_PATH = original
+
+    tr = Translator.__new__(Translator)  # 不走 __init__，避免建 sqlite 缓存
+    tr.config = types.SimpleNamespace(providers=[])
+    long_word = "electroencephalographically"  # 28 字符，超过 _WORD_MAX_LEN
+    eq("单词模式下长词仍走词典链", tr._chain_for(long_word, word_only=True), Translator.WORD_CHAIN)
+    eq("整句模式下同一串走机翻链", tr._chain_for(long_word), Translator.SENTENCE_CHAIN)
+
+    check("UIA 接受普通单词", _acceptable_word("Install"))
+    check("UIA 接受带撇号的词", _acceptable_word("don't"))
+    check("UIA 拒绝词组", not _acceptable_word("add collaborators"))
+    check("UIA 拒绝空白", not _acceptable_word("   "))
+    check("UIA 拒绝纯数字", not _acceptable_word("12345"))
+    check("UIA 拒绝超长串", not _acceptable_word("a" * 41))
+    check("UIA 会裁掉首尾空白", _acceptable_word("  Word  "))
+
+    class _Rect:
+        def __init__(self, x, y, w=100.0, h=20.0):
+            self.x = x
+            self.y = y
+            self.width = w
+            self.height = h
+
+    class _Word:
+        def __init__(self, text, x, y):
+            self.text = text
+            self.bounding_rect = _Rect(x, y)
+
+    class _Line:
+        def __init__(self, words):
+            self.text = " ".join(w.text for w in words)
+            self.words = words
+
+    line = _Line([_Word("alpha", 0.0, 40.0), _Word("beta", 120.0, 40.0), _Word("gamma", 240.0, 40.0)])
+    eq("命中包围盒内的词", _word_at([line], 150, 50), "beta")
+    eq("落在词间空隙时取最近的词", _word_at([line], 235, 50), "gamma")
+    eq("完全偏离时仍取最近的词", _word_at([line], 10, 400), "alpha")
+    eq("没有词时返回 None", _word_at([_Line([])], 100, 50), None)
 
 
 # ---------------------------------------------------------------- 入口
@@ -226,6 +293,7 @@ def main() -> int:
     test_result_gate()
     test_filters()
     test_ocr_region()
+    test_word_mode()
     print("\n" + "=" * 60)
     if FAILED:
         print(f"失败 {len(FAILED)} 项：")

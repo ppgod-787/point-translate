@@ -116,6 +116,7 @@ class Config:
     # 取词
     use_uia: bool = True                # 优先用 UI Automation 取词
     use_ocr: bool = True                # UIA 取不到时用 OCR 兜底
+    whole_sentence: bool = True         # True=翻译整句；False=只翻译指针下的单词
     ocr_padding: int = 14               # OCR 截图在鼠标周围扩多少像素
     ocr_width: int = 420                # OCR 截图宽度
     ocr_height: int = 90                # OCR 截图高度

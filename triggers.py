@@ -152,7 +152,11 @@ class HoverWorker(QObject):
         # 4) 翻译。OCR 来的文字可能认错，不让它写进缓存
         self.pending.emit(text)
         try:
-            result = self.translator.translate(text, reliable=(source != "ocr"))
+            result = self.translator.translate(
+                text,
+                reliable=(source != "ocr"),
+                word_only=not self.config.whole_sentence,
+            )
         except Exception as exc:
             self.miss.emit(f"翻译失败：{type(exc).__name__}", str(exc))
             return
@@ -174,8 +178,10 @@ class HoverWorker(QObject):
 
     def _extract(self, x: int, y: int) -> tuple[str | None, str]:
         """按 UIA → OCR 的顺序取词，返回 (文本, 来源)。"""
+        # 整句模式取控件/整行的文字；单词模式只取指针下的那个词
+        word_only = not self.config.whole_sentence
         if self.config.use_uia:
-            hit = uia_module.text_from_uia(x, y)
+            hit = uia_module.text_from_uia(x, y, word_only=word_only)
             if hit is not None and hit.text.strip():
                 # UIA 常把整段窗口文本都返回，取第一行更像用户在指的东西
                 text = hit.text.splitlines()[0] if "\n" in hit.text else hit.text
@@ -186,7 +192,7 @@ class HoverWorker(QObject):
                 err = self._ocr.error or "OCR 不可用"
                 self.miss.emit("OCR 不可用", err)
                 return None, "ocr"
-            result = self._ocr.read_at(x, y)
+            result = self._ocr.read_at(x, y, word_only=word_only)
             if result is not None and result.text.strip():
                 return result.text, "ocr"
 
